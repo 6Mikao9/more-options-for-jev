@@ -1,21 +1,23 @@
 # More Options for Jev
 
-Jev 原生接口一次最多稳定支持 255 个 options。这个仓库整理的是 **超过 255 选项时的可扩展方案**：把候选空间做成“虚拟化 + 分页”，让 Jev 每次只看一个有界 resident set，但可以按需翻页直到找到真正合适的工具或参数。
+[简体中文：README.zh-CN.md](README.zh-CN.md)
 
-## 背景与目标
+Jev's native interface can support at most 255 options per call in a stable way. This repository organizes an extensible solution for situations with more than 255 options: it virtualizes and pages the candidate space so that Jev only sees a limited set of options at a time.
 
-在真实 agent 场景里，工具、动作、参数候选会随着任务上下文快速膨胀，固定 255 options 会带来两个问题：
+## Background and Goals
 
-1. 候选被截断，正确项可能根本进不了当前决策帧。
-2. 为了塞进上限而做硬裁剪，会显著降低覆盖率和可恢复性。
+In real agent scenarios, tool, action, and parameter candidates expand rapidly with task context. A fixed limit of 255 options introduces two problems:
 
-这个模块的目标是：
+1. Candidates are truncated, and the correct option may never enter the current decision frame.
+2. Hard clipping to fit the limit significantly reduces coverage and recoverability.
 
-- 保留 Jev 决策接口的有界性；
-- 通过分页把“逻辑上无限”的候选空间映射成“物理可驻留”的页；
-- 用显式状态动作（如 `PAGE` / `EXPAND` / `REFINE`）支持可回放、可诊断的决策流程。
+The goal of this module is to:
 
-## 方案概览：Virtual Option Space + Resident Options
+- Preserve the bounded nature of the Jev decision interface;
+- Map a logically infinite candidate space into physically resident pages through paging;
+- Support replayable, diagnosable decision flows with explicit state actions such as `PAGE`, `EXPAND`, and `REFINE`.
+
+## Overview of the Approach: Virtual Option Space + Resident Options
 
 ```text
 Open-world candidate space
@@ -27,36 +29,36 @@ Resident options (physical, visible to Jev)
 Jev decision + state transition
 ```
 
-核心思想：
+Core idea:
 
-- **物理页（physical pages）**：模型当前真实“看见”的 options 集合。
-- **虚拟页（virtual pages）**：上下文里可寻址但未驻留的候选目录。
-- **分页动作**：当当前页没有合适候选时，模型可以触发翻页，把其他虚拟页 materialize 成新的物理页。
+- **Physical pages**: the set of options the model currently actually sees.
+- **Virtual pages**: addressable candidate directories in context that are not currently resident.
+- **Paging actions**: when the current page does not contain a suitable candidate, the model can trigger a page change and materialize another virtual page into a new physical page.
 
-这样，Jev 不需要一次处理全部候选；它只在小窗口内做高质量选择，同时保留对大空间的可达性。
+This way, Jev does not need to process all candidates at once; it only makes a high-quality choice within a small window while preserving reachability across a larger space.
 
-## 运行时语义（建议）
+## Runtime Semantics (Recommended)
 
-可将以下动作作为显式状态迁移（便于 trace/replay）：
+The following actions can be used as explicit state transitions for easier trace/replay:
 
-- `PAGE`：切换到另一候选页。
-- `EXPAND`：扩大当前可见候选覆盖范围。
-- `REFINE`：把粗粒度候选细化到字段/片段/token 级。
-- `INVALIDATE`：在 revision 变化后使旧候选失效。
-- `CLARIFY`：信息不足时请求澄清。
-- `STOP`：完成或中止当前回合。
+- `PAGE`: switch to another candidate page.
+- `EXPAND`: expand the current visible candidate coverage.
+- `REFINE`: refine coarse candidates to field/fragment/token level.
+- `INVALIDATE`: invalidate stale candidates after a revision change.
+- `CLARIFY`: request clarification when the information is insufficient.
+- `STOP`: finish or abort the current round.
 
-## 与 Jev Native Agent 项目的关系
+## Relationship with the Jev Native Agent Project
 
-本仓库是该能力模块的说明与提炼；完整运行时原型位于：
+This repository is a description and distillation of this capability module; the complete runtime prototype is located here:
 
 - https://github.com/6Mikao9/jev-native-agent-with-extended-options
 
-建议结合该仓库中的 runtime 与实验文档理解完整上下文。
+It is recommended to read the runtime and experimental documentation in that repository to understand the full context.
 
-## Quick Start（来自 Jev Native Agent 项目，Core / 不走辅助模型）
+## Quick Start (from the Jev Native Agent project, Core / without helper models)
 
-下面是“**不依赖辅助模型**”的最小可运行路径，适合先验证 paging/option 协议与执行边界：
+The following is the minimal runnable path that does not depend on a helper model, and is suitable for validating the paging/option protocol and execution boundaries:
 
 ```powershell
 python -m venv .venv
@@ -65,24 +67,24 @@ pip install -e .
 jev-agent --workspace .\agent_workspace
 ```
 
-也可以直接：
+You can also run:
 
 ```powershell
 python -m jev_agent.cli --workspace .\agent_workspace
 ```
 
-REPL 内常用操作：
+Common REPL commands:
 
-- `:tools` 查看可用工具
-- `:plan file.search {"text":"TODO","path":"."}` 生成候选计划
-- `:approve` 批准有副作用的执行
+- `:tools` view available tools
+- `:plan file.search {"text":"TODO","path":"."}` generate a candidate plan
+- `:approve` approve side-effecting execution
 
-说明：
+Notes:
 
-- Core 模式使用确定性的 scripted chooser，主要用于协议/流程 smoke test。
-- 不需要 GPU、模型权重或 API key。
-- 这条路径用于验证 runtime 机制，不代表真实 Jev 端到端质量上限。
+- The Core mode uses a deterministic scripted chooser and is mainly intended for protocol and workflow smoke tests.
+- No GPU, model weights, or API key are required.
+- This path is meant to validate the runtime mechanism and does not represent the upper bound of real Jev end-to-end quality.
 
-## 后续扩展
+## Follow-up Extensions
 
-如果需要接入 helper model 或 live Jev，可在上游仓库继续按 `.[models]` 与 `--live --key-stdin` 路径扩展；本仓库当前聚焦于“超 255 options 的虚拟化与分页能力说明”。
+If you need to connect a helper model or live Jev, continue in the upstream repository via the `.[models]` and `--live --key-stdin` paths. This repository currently focuses on the virtualization and paging of options beyond the 255-option limit.
